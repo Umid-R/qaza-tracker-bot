@@ -158,7 +158,7 @@ async def auto_mark_qaza_and_delete(bot: Bot, user_id: int, prayer_name: str, me
     prayer_data = last_warned_prayer.get(user_id)
     if prayer_data and prayer_data.get('message_id') == message_id:
         # User didn't respond, mark as qaza
-        add_qaza(prayer_name, user_id, reason="No response to reminder")
+        add_qaza(prayer_name, user_id, reason="Unknown")
         
         # Clean up tracking
         del last_warned_prayer[user_id]
