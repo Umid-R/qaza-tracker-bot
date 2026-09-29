@@ -64,7 +64,7 @@ dp = Dispatcher(storage=MemoryStorage())
 sent_today = {}  # prevent duplicates
 prayer_scheduler_tasks = {}  # per-user prayer scheduler
 pre_prayer_scheduler_tasks = {}  # per-user pre-prayer scheduler
-last_warned_prayer = {}  # Fixed: Now stores message_id to track which prayer was warned
+last_warned_prayer = {}  # user_id -> {message_id: {'prayer': prayer_name}} — supports multiple pending reminders at once
 last_prayer_notification = {}  #Track last prayer time notification message
 
 
@@ -154,14 +154,17 @@ async def auto_mark_qaza_and_delete(bot: Bot, user_id: int, prayer_name: str, me
     """Wait for timeout, then mark as qaza and delete message if user didn't respond"""
     await asyncio.sleep(seconds)
     
-    # Check if user already responded
-    prayer_data = last_warned_prayer.get(user_id)
-    if prayer_data and prayer_data.get('message_id') == message_id:
+    # Check if this specific reminder is still pending (not answered, not
+    # overwritten by a different prayer's reminder)
+    user_pending = last_warned_prayer.get(user_id, {})
+    if message_id in user_pending:
         # User didn't respond, mark as qaza
         add_qaza(prayer_name, user_id, reason="Unknown")
         
-        # Clean up tracking
-        del last_warned_prayer[user_id]
+        # Clean up tracking for just this reminder
+        del user_pending[message_id]
+        if not user_pending:
+            last_warned_prayer.pop(user_id, None)
     
     # Delete the message regardless
     try:
@@ -223,9 +226,8 @@ async def pre_prayer_scheduler(bot: Bot, user_id: int):
                         sent_pre[key] = True
                         
                         # Fixed: Store both prayer name and message_id to track which prayer this reminder is for
-                        last_warned_prayer[user_id] = {
-                            'prayer': target_prayer,
-                            'message_id': sent_message.message_id
+                        last_warned_prayer.setdefault(user_id, {})[sent_message.message_id] = {
+                            'prayer': target_prayer
                         }
                         
                         # Auto-timeout after 2 hours (7200 seconds)
@@ -250,9 +252,8 @@ async def pre_prayer_scheduler(bot: Bot, user_id: int):
                     )
                     sent_pre[isha_key] = True
                     
-                    last_warned_prayer[user_id] = {
-                        'prayer': 'isha',
-                        'message_id': sent_message.message_id
+                    last_warned_prayer.setdefault(user_id, {})[sent_message.message_id] = {
+                        'prayer': 'isha'
                     }
                     
                     # Auto-timeout after 2 hours (7200 seconds)
@@ -479,21 +480,20 @@ async def handle_text(message: Message, state: FSMContext):
 @dp.callback_query(F.data == "prayed_yes")
 async def handle_prayed_yes(query: CallbackQuery):
     user_id = query.from_user.id
+    message_id = query.message.message_id
     
-    # Fixed: Get prayer name from stored data
-    prayer_data = last_warned_prayer.get(user_id)
-    
-    if prayer_data and isinstance(prayer_data, dict):
-        prayer_name = prayer_data.get('prayer', 'unknown')
-    else:
-        prayer_name = 'unknown'
+    # Look up which prayer this specific message was warning about
+    prayer_data = last_warned_prayer.get(user_id, {}).get(message_id)
+    prayer_name = prayer_data.get('prayer', 'unknown') if prayer_data else 'unknown'
     
     if prayer_name != "unknown":
         add_prayer(prayer_name, user_id)
     
-    # Clean up
+    # Clean up just this reminder, leave any other pending ones untouched
     if user_id in last_warned_prayer:
-        del last_warned_prayer[user_id]
+        last_warned_prayer[user_id].pop(message_id, None)
+        if not last_warned_prayer[user_id]:
+            del last_warned_prayer[user_id]
     
     # DELETE THE ORIGINAL WARNING MESSAGE IMMEDIATELY
     try:
@@ -514,21 +514,20 @@ async def handle_prayed_yes(query: CallbackQuery):
 @dp.callback_query(F.data == "prayed_no")
 async def handle_prayed_no(query: CallbackQuery):
     user_id = query.from_user.id
+    message_id = query.message.message_id
     
-    # Fixed: Get prayer name from stored data
-    prayer_data = last_warned_prayer.get(user_id)
-    
-    if prayer_data and isinstance(prayer_data, dict):
-        prayer_name = prayer_data.get('prayer', 'unknown')
-    else:
-        prayer_name = 'unknown'
+    # Look up which prayer this specific message was warning about
+    prayer_data = last_warned_prayer.get(user_id, {}).get(message_id)
+    prayer_name = prayer_data.get('prayer', 'unknown') if prayer_data else 'unknown'
     
     if prayer_name != "unknown":
         add_qaza(prayer_name, user_id)
     
-    # Clean up
+    # Clean up just this reminder, leave any other pending ones untouched
     if user_id in last_warned_prayer:
-        del last_warned_prayer[user_id]
+        last_warned_prayer[user_id].pop(message_id, None)
+        if not last_warned_prayer[user_id]:
+            del last_warned_prayer[user_id]
     
     # DELETE THE ORIGINAL WARNING MESSAGE IMMEDIATELY
     try:
