@@ -554,7 +554,7 @@ async def main():
     await bot.set_chat_menu_button(
         menu_button=MenuButtonWebApp(
             text="🕌 Qaza Tracker",
-            web_app=WebAppInfo(url="https://jsur.vercel.app")
+            web_app=WebAppInfo(url="https://qaza-tracker-frontend.vercel.app")
         )
     )
     asyncio.create_task(daily_prayer_times_updater())
