@@ -41,6 +41,7 @@ from bot.database.database import (
     get_user_language,
     update_user_language
 )
+from bot.translations import t, prayer_name, detect_language, format_prayer_times, SUPPORTED_LANGUAGES
 
 
 # ======================
@@ -55,6 +56,10 @@ access_token = os.getenv("TELEGRAM_TOKEN")
 class UserRegistration(StatesGroup):
     waiting_for_name = State()
     waiting_for_city = State()
+
+# Localized reply-keyboard button labels, needed so text-matching handlers
+# recognize the button regardless of which language it was shown in.
+ENTER_CITY_LABELS = {t(lang, 'btn_enter_city') for lang in SUPPORTED_LANGUAGES}
 
 # ======================
 # DISPATCHER
@@ -115,7 +120,7 @@ async def prayer_scheduler(bot: Bot, user_id: int):
                     user_lang = get_user_language(user_id)
                     sent_message = await bot.send_message(
                         chat_id=user_id,
-                        text=f"🕌 Time for {prayer.capitalize()}\n{get_prayer_message(prayer, user_lang)}\n({time_str})",
+                        text=f"{t(user_lang, 'time_for_prayer', prayer=prayer_name(user_lang, prayer))}\n{get_prayer_message(prayer, user_lang)}\n({time_str})",
                     )
                     last_prayer_notification[user_id] = sent_message.message_id
                     sent_today[user_id][prayer] = today
@@ -221,10 +226,11 @@ async def pre_prayer_scheduler(bot: Bot, user_id: int):
                 if reminder_dt <= now < reminder_dt + timedelta(minutes=1):
                     if key not in sent_pre:
                         # Send the reminder
+                        user_lang = get_user_language(user_id)
                         sent_message = await bot.send_animation(
                             chat_id=user_id,
                             animation=get_gif(type='judging'),
-                            caption=f"⚠️ {target_prayer.capitalize()} prayer will be MISSED in 10 minutes.\nHave you prayed it already?",
+                            caption=t(user_lang, 'prayer_will_be_missed_10min', prayer=prayer_name(user_lang, target_prayer)),
                             reply_markup=prayed_keyboard
                         )
                         sent_pre[key] = True
@@ -248,10 +254,11 @@ async def pre_prayer_scheduler(bot: Bot, user_id: int):
             if isha_reminder_time <= now < isha_reminder_time + timedelta(minutes=1):
                 if isha_key not in sent_pre:
                     # Send Isha reminder at 22:00
+                    isha_lang = get_user_language(user_id)
                     sent_message = await bot.send_animation(
                         chat_id=user_id,
                         animation=get_gif(type='judging'),
-                        caption=f"⚠️ Isha prayer will be MISSED soon.\nHave you prayed it already?",
+                        caption=t(isha_lang, 'isha_will_be_missed'),
                         reply_markup=prayed_keyboard
                     )
                     sent_pre[isha_key] = True
@@ -324,9 +331,16 @@ async def daily_prayer_times_updater():
 # ======================
 @dp.message(CommandStart())
 async def command_start(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    if is_user_exist(user_id):
+        lang = get_user_language(user_id)
+    else:
+        lang = detect_language(message.from_user.language_code)
+
     await state.set_state(UserRegistration.waiting_for_name)
+    await state.update_data(lang=lang)
     await message.answer(
-        f"Hello, {html.bold(message.from_user.full_name)} 👋\nWhat is your name?"
+        t(lang, 'welcome', name=html.bold(message.from_user.full_name))
     )
 
 # ======================
@@ -365,11 +379,13 @@ async def handle_language_choice(query: CallbackQuery):
 # ======================
 # ENTER CITY MANUALLY CLICK
 # ======================
-@dp.message(F.text == "🏙️ Enter City Manually")
+@dp.message(F.text.in_(ENTER_CITY_LABELS))
 async def manual_city(message: Message, state: FSMContext):
+    data = await state.get_data()
+    lang = data.get('lang', 'en')
     await state.set_state(UserRegistration.waiting_for_city)
     await message.answer(
-        "Okay! Please type your city name (e.g., Seoul, Busan, Osh):",
+        t(lang, 'ask_city'),
         reply_markup=ReplyKeyboardRemove()
     )
 
@@ -380,6 +396,7 @@ async def manual_city(message: Message, state: FSMContext):
 async def handle_location(message: Message, state: FSMContext):
     data = await state.get_data()
     user_name = data.get("user_name")
+    lang = data.get("lang", "en")
     user_id = message.from_user.id
     
     lat = message.location.latitude
@@ -397,6 +414,7 @@ async def handle_location(message: Message, state: FSMContext):
             prayer_times["Maghrib"],
             prayer_times["Isha"],
         )
+        update_user_language(user_id, lang)
     else:
         update_user(id=user_id, name=user_name, lat=lat, lon=lon)
         update_prayer_times(
@@ -410,13 +428,7 @@ async def handle_location(message: Message, state: FSMContext):
         )
 
     await message.answer(
-        f"Here are the prayer times for your location 🕌\n"
-        f"Fajr:{prayer_times['Fajr']}\n"
-        f"Sunrise:{prayer_times['Sunrise']}\n"
-        f"Dhuhr:{prayer_times['Dhuhr']}\n"
-        f"Asr:{prayer_times['Asr']}\n"
-        f"Maghrib:{prayer_times['Maghrib']}\n"
-        f"Isha:{prayer_times['Isha']}",
+        format_prayer_times(lang, prayer_times),
         reply_markup=ReplyKeyboardRemove()
     )
 
@@ -433,23 +445,25 @@ async def handle_location(message: Message, state: FSMContext):
 async def handle_text(message: Message, state: FSMContext):
     current_state = await state.get_state()
     
-    if message.text == "🏙️ Enter City Manually":
+    if message.text in ENTER_CITY_LABELS:
         return
 
     # STEP 1: Get name
     if current_state == UserRegistration.waiting_for_name:
+        data = await state.get_data()
+        lang = data.get("lang", "en")
         user_name = message.text.strip()
         await state.update_data(user_name=user_name)
         
         keyboard = ReplyKeyboardMarkup(
             keyboard=[
-                [KeyboardButton(text="📍 Send Location", request_location=True)],
-                [KeyboardButton(text="🏙️ Enter City Manually")],
+                [KeyboardButton(text=t(lang, 'btn_send_location'), request_location=True)],
+                [KeyboardButton(text=t(lang, 'btn_enter_city'))],
             ],
             resize_keyboard=True,
         )
         await message.answer(
-            f"Nice to meet you, {user_name} 😊\nChoose an option:",
+            t(lang, 'nice_to_meet', name=user_name),
             reply_markup=keyboard
         )
         return
@@ -458,12 +472,13 @@ async def handle_text(message: Message, state: FSMContext):
     if current_state == UserRegistration.waiting_for_city:
         data = await state.get_data()
         user_name = data.get("user_name")
+        lang = data.get("lang", "en")
         user_id = message.from_user.id
         
         city = message.text.strip()
         cors = get_cor_city(city.capitalize())
         if cors is None:
-            await message.answer("Oops — city not found. Try again 😊")
+            await message.answer(t(lang, 'city_not_found'))
             return
 
         prayer_times = get_by_cor(float(cors[0]), float(cors[1]))
@@ -479,6 +494,7 @@ async def handle_text(message: Message, state: FSMContext):
                 prayer_times["Maghrib"],
                 prayer_times["Isha"],
             )
+            update_user_language(user_id, lang)
         else:
             update_user(id=user_id, name=user_name, lat=float(cors[0]), lon=float(cors[1]))
             update_prayer_times(
@@ -492,13 +508,7 @@ async def handle_text(message: Message, state: FSMContext):
             )
 
         await message.answer(
-            f"Here are the prayer times for your location 🕌\n"
-            f"Fajr:{prayer_times['Fajr']}\n"
-            f"Sunrise:{prayer_times['Sunrise']}\n"
-            f"Dhuhr:{prayer_times['Dhuhr']}\n"
-            f"Asr:{prayer_times['Asr']}\n"
-            f"Maghrib:{prayer_times['Maghrib']}\n"
-            f"Isha:{prayer_times['Isha']}",
+            format_prayer_times(lang, prayer_times),
             reply_markup=ReplyKeyboardRemove()
         )
 
