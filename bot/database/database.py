@@ -87,6 +87,28 @@ def is_user_exist(id):
     return False
 
 
+def get_user_language(user_id: int) -> str:
+    response = (
+        Client.table("users")
+        .select("language")
+        .eq("id", user_id)
+        .execute()
+    )
+    if response.data and response.data[0].get("language"):
+        return response.data[0]["language"]
+    return "en"
+
+
+def update_user_language(user_id: int, language: str) -> bool:
+    response = (
+        Client.table("users")
+        .update({'language': language})
+        .eq("id", user_id)
+        .execute()
+    )
+    return bool(response.data)
+
+
 def add_qaza(prayer, user_id, reason=None):
     today = date.today()
     

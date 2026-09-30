@@ -208,23 +208,25 @@ def get_weekly_activity(user_id: int):
 
 
 
-def get_profile_quote():
+def get_profile_quote(language: str = "en"):
     res = (
         Client
         .table("profile_quotes")
         .select("quote")
+        .eq("language", language)
         .execute()
     )
     quote=random.choice(res.data)
     return quote
 
 
-def get_prayer_message(prayer):
+def get_prayer_message(prayer, language: str = "en"):
     res = (
         Client
         .table("prayer_messages")
         .select("message")
         .eq('prayer',prayer)
+        .eq('language', language)
         .execute()
     )
     message=random.choice(res.data)

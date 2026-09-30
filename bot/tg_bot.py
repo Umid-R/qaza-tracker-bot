@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, F, html
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, Command
 from aiogram.types import (
     Message,
     KeyboardButton,
@@ -21,7 +21,8 @@ from aiogram.types import (
     WebAppInfo,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
-    CallbackQuery
+    CallbackQuery,
+    BotCommand
 )
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
@@ -36,7 +37,9 @@ from bot.database.database import (
     insert_prayer_times,
     update_prayer_times,
     add_qaza,
-    add_prayer
+    add_prayer,
+    get_user_language,
+    update_user_language
 )
 
 
@@ -109,9 +112,10 @@ async def prayer_scheduler(bot: Bot, user_id: int):
                             logging.error(f"Failed to delete previous prayer notification: {e}")
                     
                     # SEND NEW NOTIFICATION AND STORE MESSAGE ID
+                    user_lang = get_user_language(user_id)
                     sent_message = await bot.send_message(
                         chat_id=user_id,
-                        text=f"🕌 Time for {prayer.capitalize()}\n{get_prayer_message(prayer)}\n({time_str})",
+                        text=f"🕌 Time for {prayer.capitalize()}\n{get_prayer_message(prayer, user_lang)}\n({time_str})",
                     )
                     last_prayer_notification[user_id] = sent_message.message_id
                     sent_today[user_id][prayer] = today
@@ -324,6 +328,39 @@ async def command_start(message: Message, state: FSMContext):
     await message.answer(
         f"Hello, {html.bold(message.from_user.full_name)} 👋\nWhat is your name?"
     )
+
+# ======================
+# LANGUAGE SELECTION
+# ======================
+language_keyboard = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [InlineKeyboardButton(text="English", callback_data="lang_en")],
+        [InlineKeyboardButton(text="O'zbekcha", callback_data="lang_uz")],
+        [InlineKeyboardButton(text="Русский", callback_data="lang_ru")],
+    ]
+)
+
+@dp.message(Command("language"))
+async def command_language(message: Message):
+    await message.answer(
+        "Choose your language / Tilni tanlang / Выберите язык:",
+        reply_markup=language_keyboard
+    )
+
+@dp.callback_query(F.data.startswith("lang_"))
+async def handle_language_choice(query: CallbackQuery):
+    user_id = query.from_user.id
+    language = query.data.replace("lang_", "")  # 'en', 'uz', or 'ru'
+
+    update_user_language(user_id, language)
+
+    confirmations = {
+        "en": "Language set to English ✅",
+        "uz": "Til O'zbekcha qilib o'rnatildi ✅",
+        "ru": "Язык установлен на русский ✅",
+    }
+    await query.message.edit_text(confirmations.get(language, "Language updated ✅"))
+    await query.answer()
 
 # ======================
 # ENTER CITY MANUALLY CLICK
@@ -550,6 +587,10 @@ async def handle_prayed_no(query: CallbackQuery):
 # ======================
 async def main():
     bot = Bot(token=access_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    await bot.set_my_commands([
+        BotCommand(command="start", description="Register / restart"),
+        BotCommand(command="language", description="Change language / Tilni o'zgartirish / Изменить язык"),
+    ])
     await bot.set_chat_menu_button(
         menu_button=MenuButtonWebApp(
             text="🕌 Qaza Tracker",
