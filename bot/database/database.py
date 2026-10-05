@@ -1,6 +1,7 @@
-from supabase import create_client, Client
+from supabase import create_client, Client, ClientOptions
 from dotenv import load_dotenv
 import os
+import httpx
 from timezonefinder import TimezoneFinder
 from datetime import date, datetime
 load_dotenv()
@@ -9,7 +10,15 @@ load_dotenv()
 url=os.getenv("SUPABASE_URL")
 key= os.getenv("SUPABASE_KEY")
 
-Client = create_client(url, key)
+# Force HTTP/1.1 instead of HTTP/2. This bot runs many concurrent per-user
+# scheduler tasks that all share this one client; HTTP/2's single multiplexed
+# connection is fragile under that kind of concurrency and was causing
+# intermittent "ConnectionTerminated" errors. HTTP/1.1 uses a real pool of
+# independent connections instead.
+Client = create_client(
+    url, key,
+    options=ClientOptions(httpx_client=httpx.Client(http2=False))
+)
 
 tf = TimezoneFinder()
 

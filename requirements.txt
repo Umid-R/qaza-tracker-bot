@@ -3,4 +3,5 @@ pydantic==2.5.3
 python-dotenv
 requests
 supabase
+httpx
 timezonefinder

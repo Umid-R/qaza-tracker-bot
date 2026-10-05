@@ -1,6 +1,7 @@
-from supabase import create_client, Client
+from supabase import create_client, Client, ClientOptions
 from dotenv import load_dotenv
 import os
+import httpx
 from datetime import  datetime, timedelta, time, date
 import random
 import logging
@@ -14,7 +15,12 @@ url=os.getenv("SUPABASE_URL")
 key= os.getenv("SUPABASE_KEY")
 
 
-Client = create_client(url, key)
+# Force HTTP/1.1 — see database.py for why (shared client under heavy
+# concurrent use from many scheduler tasks, HTTP/2 connection fragility).
+Client = create_client(
+    url, key,
+    options=ClientOptions(httpx_client=httpx.Client(http2=False))
+)
 
 def get_user_info(user_id: int):
     res = (
