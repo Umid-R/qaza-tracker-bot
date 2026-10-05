@@ -48,7 +48,7 @@ from bot.translations import t, prayer_name, detect_language, format_prayer_time
 # ENV
 # ======================
 load_dotenv()
-access_token = os.getenv("TELEGRAM_TOKEN")
+access_token = os.getenv("TELEGRAM_TOKEN", "").strip()
 
 # ======================
 # FSM STATES

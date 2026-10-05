@@ -7,8 +7,8 @@ from datetime import date, datetime
 load_dotenv()
 
 
-url=os.getenv("SUPABASE_URL")
-key= os.getenv("SUPABASE_KEY")
+url=os.getenv("SUPABASE_URL", "").strip()
+key= os.getenv("SUPABASE_KEY", "").strip()
 
 # Force HTTP/1.1 instead of HTTP/2. This bot runs many concurrent per-user
 # scheduler tasks that all share this one client; HTTP/2's single multiplexed

@@ -11,8 +11,8 @@ import logging
 load_dotenv()
 
 
-url=os.getenv("SUPABASE_URL")
-key= os.getenv("SUPABASE_KEY")
+url=os.getenv("SUPABASE_URL", "").strip()
+key= os.getenv("SUPABASE_KEY", "").strip()
 
 
 # Force HTTP/1.1 — see database.py for why (shared client under heavy
